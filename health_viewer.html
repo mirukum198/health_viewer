@@ -164,6 +164,13 @@
   <h1>ヘルスケアビューア</h1>
   <p class="subtitle">Apple ヘルスケアのエクスポートZIPをドロップしてデータを可視化します &nbsp;|&nbsp; <span style="font-size:11px;">ver 1.0.0</span></p>
 
+  <div style="background:#f2f2f7;border-radius:12px;padding:12px 16px;margin-bottom:16px;font-size:12px;color:#3a3a3c;line-height:1.7;">
+    <strong>注意事項</strong><br>
+    ・ヘルスケアのデータ量が多い場合（長期間使用）、<strong>iPhoneのブラウザではクラッシュする可能性があります</strong><br>
+    ・その場合はPCのブラウザ（Chrome / Safari）での利用を推奨します<br>
+    ・データはこのデバイス内でのみ処理され、外部サーバーには送信されません
+  </div>
+
   <div id="sizeWarnBox" style="display:none;background:#fff3cd;border:1px solid #ffc107;border-radius:12px;padding:14px 18px;margin-bottom:14px;font-size:13px;color:#664d03;line-height:1.6;">
     <strong>ファイルサイズが大きいため、iPhoneのブラウザではクラッシュする可能性があります。</strong><br>
     PCのブラウザでの利用を推奨します。iPhoneで続ける場合はそのままお待ちください。
@@ -293,6 +300,16 @@
 </div>
 
 <script>
+// iOSでアクセスした場合、sizeWarnBoxを最初から表示
+(function() {
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  if (isIOS) {
+    const box = document.getElementById('sizeWarnBox');
+    box.innerHTML = '<strong>iPhoneのブラウザで開いています。</strong><br>データ量が多い場合、処理中にクラッシュする可能性があります。<br>可能であればPCのブラウザでご利用ください。iPhoneのまま続ける場合はそのままファイルを選択してください。';
+    box.style.display = 'block';
+  }
+})();
+
 let dayMap = {};
 let sortedDates = [];
 let charts = { weight: null, fat: null, activity: null, sleep: null };
