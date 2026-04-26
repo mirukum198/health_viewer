@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ヘルスケアビューア</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Segoe UI', sans-serif;
+      background: #f5f5f7;
+      color: #1d1d1f;
+      min-height: 100vh;
+    }
+    .container { max-width: 960px; margin: 0 auto; padding: 32px 16px; }
+    h1 { font-size: 26px; font-weight: 700; margin-bottom: 8px; }
+    .subtitle { font-size: 14px; color: #8e8e93; margin-bottom: 28px; }
+
+    /* Drop zone */
+    .drop-zone {
+      border: 2px dashed #c7c7cc;
+      border-radius: 18px;
+      padding: 64px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      background: white;
+    }
+    .drop-zone:hover, .drop-zone.dragover { border-color: #007aff; background: #f0f6ff; }
+    .drop-icon { font-size: 52px; margin-bottom: 14px; }
+    .drop-main { font-size: 17px; font-weight: 500; margin-bottom: 6px; }
+    .drop-sub { font-size: 13px; color: #8e8e93; }
+    input[type=file] { display: none; }
+
+    /* Progress */
+    .progress-wrap { display: none; background: white; border-radius: 14px; padding: 20px 24px; margin-top: 14px; }
+    .bar-track { height: 6px; background: #e5e5ea; border-radius: 3px; overflow: hidden; }
+    .bar-fill { height: 100%; background: #007aff; width: 0%; transition: width 0.4s ease; border-radius: 3px; }
+    .progress-label { font-size: 13px; color: #8e8e93; margin-top: 8px; }
+
+    /* Error */
+    .error-box { display: none; background: #fff2f2; border: 1px solid #ffd0d0; border-radius: 12px; padding: 14px 18px; margin-top: 14px; color: #d70015; font-size: 14px; white-space: pre-wrap; }
+
+    /* Summary cards */
+    .summary-row { display: none; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-top: 16px; }
+    .card { background: white; border-radius: 14px; padding: 16px; text-align: center; }
+    .card-label { font-size: 11px; color: #8e8e93; margin-bottom: 4px; letter-spacing: 0.02em; }
+    .card-value { font-size: 24px; font-weight: 700; }
+    .card-unit { font-size: 12px; color: #8e8e93; font-weight: 400; }
+
+    /* Global date filter */
+    .date-filter-wrap {
+      display: none;
+      background: white;
+      border-radius: 14px;
+      padding: 14px 20px;
+      margin-top: 16px;
+    }
+    .filter-inner {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .filter-label { font-size: 13px; font-weight: 500; color: #1d1d1f; margin-right: 4px; }
+    .filter-inner label { font-size: 12px; color: #8e8e93; }
+    .filter-inner input[type=date] {
+      font-size: 12px;
+      border: 1px solid #d1d1d6;
+      border-radius: 8px;
+      padding: 5px 10px;
+      color: #1d1d1f;
+      outline: none;
+    }
+    .filter-inner input[type=date]:focus { border-color: #007aff; }
+    .btn {
+      background: #007aff;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 6px 14px;
+      font-size: 12px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .btn:hover { background: #0065d8; }
+    .btn-ghost { background: #f2f2f7; color: #1d1d1f; }
+    .btn-ghost:hover { background: #e5e5ea; }
+
+    /* Charts */
+    .chart-wrap {
+      display: none;
+      background: white;
+      border-radius: 18px;
+      padding: 24px;
+      margin-top: 12px;
+    }
+    .chart-title { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: #1d1d1f; }
+    canvas { max-height: 280px; }
+
+    /* Tabs */
+    .tabs-wrap { display: none; margin-top: 20px; }
+    .tab-row {
+      display: flex;
+      gap: 6px;
+      background: #e5e5ea;
+      border-radius: 12px;
+      padding: 3px;
+      width: fit-content;
+    }
+    .tab-btn {
+      background: transparent;
+      color: #8e8e93;
+      border: none;
+      border-radius: 9px;
+      padding: 7px 20px;
+      font-size: 13px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background 0.15s, color 0.15s;
+    }
+    .tab-btn.active { background: white; color: #1d1d1f; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+
+    /* Tables */
+    .table-wrap, .detail-wrap {
+      display: none;
+      background: white;
+      border-radius: 18px;
+      padding: 24px;
+      margin-top: 12px;
+    }
+    .table-title { font-size: 15px; font-weight: 600; margin-bottom: 16px; }
+    .table-scroll { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th {
+      text-align: right;
+      color: #8e8e93;
+      font-weight: 500;
+      padding: 6px 12px;
+      border-bottom: 1px solid #e5e5ea;
+      font-size: 11px;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+    th:first-child { text-align: left; }
+    td { text-align: right; padding: 9px 12px; border-bottom: 1px solid #f2f2f7; white-space: nowrap; }
+    td:first-child { text-align: left; font-weight: 500; }
+    tr:last-child td { border-bottom: none; }
+    .up   { color: #ff3b30; }
+    .down { color: #34c759; }
+    .flat { color: #8e8e93; }
+    .null { color: #c7c7cc; font-size: 12px; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>ヘルスケアビューア</h1>
+  <p class="subtitle">Apple ヘルスケアのエクスポートZIPをドロップしてデータを可視化します</p>
+
+  <div class="drop-zone" id="dropZone">
+    <div class="drop-icon">📦</div>
+    <div class="drop-main">書き出したデータ.zip をここにドロップ</div>
+    <div class="drop-sub">またはクリックしてファイルを選択 — データはこのデバイスから出ません</div>
+    <input type="file" id="fileInput" accept=".zip">
+  </div>
+
+  <div class="progress-wrap" id="progressWrap">
+    <div class="bar-track"><div class="bar-fill" id="barFill"></div></div>
+    <div class="progress-label" id="progressLabel">読み込み中...</div>
+  </div>
+
+  <div class="error-box" id="errorBox"></div>
+
+  <!-- Summary cards -->
+  <div class="summary-row" id="summaryRow">
+    <div class="card">
+      <div class="card-label">体重（最新）</div>
+      <div><span class="card-value" id="sLatest">—</span><span class="card-unit"> kg</span></div>
+    </div>
+    <div class="card">
+      <div class="card-label">体重（最低）</div>
+      <div><span class="card-value" id="sMin">—</span><span class="card-unit"> kg</span></div>
+    </div>
+    <div class="card">
+      <div class="card-label">体重（最高）</div>
+      <div><span class="card-value" id="sMax">—</span><span class="card-unit"> kg</span></div>
+    </div>
+    <div class="card">
+      <div class="card-label">体脂肪率（最新）</div>
+      <div><span class="card-value" id="sFat">—</span><span class="card-unit"> %</span></div>
+    </div>
+    <div class="card">
+      <div class="card-label">記録日数</div>
+      <div><span class="card-value" id="sCount">—</span><span class="card-unit"> 日</span></div>
+    </div>
+  </div>
+
+  <!-- Global date filter -->
+  <div class="date-filter-wrap" id="dateFilterWrap">
+    <div class="filter-inner">
+      <span class="filter-label">表示期間</span>
+      <label>From</label>
+      <input type="date" id="dateFrom">
+      <label>To</label>
+      <input type="date" id="dateTo">
+      <button class="btn" onclick="applyFilter()">適用</button>
+      <button class="btn btn-ghost" onclick="setRange(1)">1ヶ月</button>
+      <button class="btn btn-ghost" onclick="setRange(3)">3ヶ月</button>
+      <button class="btn btn-ghost" onclick="setRange(6)">6ヶ月</button>
+      <button class="btn btn-ghost" onclick="resetFilter()">全期間</button>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="chart-wrap" id="weightChartWrap">
+    <div class="chart-title">体重推移</div>
+    <canvas id="weightChart"></canvas>
+  </div>
+
+  <div class="chart-wrap" id="fatChartWrap">
+    <div class="chart-title">体脂肪率</div>
+    <canvas id="fatChart"></canvas>
+  </div>
+
+  <div class="chart-wrap" id="activityChartWrap">
+    <div class="chart-title">歩数 / 距離</div>
+    <canvas id="activityChart"></canvas>
+  </div>
+
+  <div class="chart-wrap" id="sleepChartWrap">
+    <div class="chart-title">睡眠時間</div>
+    <canvas id="sleepChart"></canvas>
+  </div>
+
+  <!-- Tabs + Tables -->
+  <div class="tabs-wrap" id="tabsWrap">
+    <div class="tab-row">
+      <button class="tab-btn active" id="tabMonthly" onclick="switchTab('monthly')">月別</button>
+      <button class="tab-btn" id="tabDaily" onclick="switchTab('daily')">日別（詳細）</button>
+    </div>
+  </div>
+
+  <div class="table-wrap" id="tableWrap">
+    <div class="table-title">月別統計</div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>月</th>
+            <th>体重（平均）</th>
+            <th>体脂肪率（平均）</th>
+            <th>歩数（合計）</th>
+            <th>距離（合計）</th>
+            <th>睡眠（平均）</th>
+            <th>前月比</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="detail-wrap" id="detailWrap">
+    <div class="table-title">日別詳細</div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>日付</th>
+            <th>体重</th>
+            <th>体脂肪率</th>
+            <th>歩数</th>
+            <th>距離</th>
+            <th>睡眠</th>
+          </tr>
+        </thead>
+        <tbody id="detailBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+let dayMap = {};
+let sortedDates = [];
+let charts = { weight: null, fat: null, activity: null, sleep: null };
+let currentTab = 'monthly';
+let hasWeight = false, hasFat = false, hasActivity = false, hasSleep = false;
+
+// Drop zone
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('dragover'); if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', e => { if (e.target.files[0]) processFile(e.target.files[0]); });
+
+async function processFile(file) {
+  setProgress(true, 0, 'ZIPファイルを読み込み中...');
+  hideError(); hideResults();
+  try {
+    const buf = await file.arrayBuffer();
+    setProgress(true, 20, 'ZIPを解凍中...'); await tick();
+    const zip = await JSZip.loadAsync(buf);
+    const entry = zip.file('apple_health_export/export.xml');
+    if (!entry) throw new Error('apple_health_export/export.xml が見つかりません。');
+    setProgress(true, 40, 'XMLを展開中...'); await tick();
+    const uint8 = await entry.async('uint8array');
+    setProgress(true, 60, `データを抽出中（${(uint8.length/1024/1024).toFixed(0)} MB）...`); await tick();
+    dayMap = await parseAll(uint8);
+    sortedDates = Object.keys(dayMap).sort();
+    if (sortedDates.length === 0) throw new Error('データが見つかりませんでした。');
+    hasWeight   = sortedDates.some(d => dayMap[d].weight !== null);
+    hasFat      = sortedDates.some(d => dayMap[d].bodyFat !== null);
+    hasActivity = sortedDates.some(d => dayMap[d].steps > 0 || dayMap[d].distance > 0);
+    hasSleep    = sortedDates.some(d => dayMap[d].hasSleep);
+    setProgress(true, 100, `完了：${sortedDates.length} 日分のデータを読み込みました`);
+    await new Promise(r => setTimeout(r, 600));
+    setProgress(false);
+    renderAll();
+  } catch (err) {
+    setProgress(false);
+    showError(`エラー: ${err.message}\n\n${err.stack || ''}`);
+  }
+}
+
+async function parseAll(uint8) {
+  const CHUNK = 20 * 1024 * 1024;
+  const OVERLAP = 2000;
+  const decoder = new TextDecoder('utf-8');
+  // [^\n]*? handles slashes in sourceName etc. correctly
+  const re = /<Record\b([^\n]*?)\/>/g;
+  const result = {};
+  const total = uint8.length;
+
+  function day(date) {
+    if (!result[date]) result[date] = { weight: null, bodyFat: null, steps: 0, distance: 0, sleep: 0, hasSleep: false };
+    return result[date];
+  }
+
+  for (let offset = 0; offset < total; offset += CHUNK - OVERLAP) {
+    const chunk = decoder.decode(uint8.subarray(offset, Math.min(offset + CHUNK, total)));
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(chunk)) !== null) {
+      const a = m[1];
+      const tM = a.match(/\btype="([^"]+)"/);
+      if (!tM) continue;
+      const type = tM[1];
+
+      if (type === 'HKQuantityTypeIdentifierBodyMass') {
+        const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
+        const vM = a.match(/\bvalue="([0-9.]+)"/);
+        const uM = a.match(/\bunit="([^"]+)"/);
+        if (!dM || !vM) continue;
+        let v = parseFloat(vM[1]);
+        if (uM && uM[1] === 'lb') v = +(v * 0.453592).toFixed(2);
+        day(dM[1]).weight = v;
+
+      } else if (type === 'HKQuantityTypeIdentifierBodyFatPercentage') {
+        const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
+        const vM = a.match(/\bvalue="([0-9.]+)"/);
+        if (!dM || !vM) continue;
+        let v = parseFloat(vM[1]);
+        if (v <= 1.0) v *= 100;
+        day(dM[1]).bodyFat = +v.toFixed(1);
+
+      } else if (type === 'HKQuantityTypeIdentifierStepCount') {
+        const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
+        const vM = a.match(/\bvalue="([0-9.]+)"/);
+        if (!dM || !vM) continue;
+        day(dM[1]).steps += Math.round(parseFloat(vM[1]));
+
+      } else if (type === 'HKQuantityTypeIdentifierDistanceWalkingRunning') {
+        const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
+        const vM = a.match(/\bvalue="([0-9.]+)"/);
+        const uM = a.match(/\bunit="([^"]+)"/);
+        if (!dM || !vM) continue;
+        let v = parseFloat(vM[1]);
+        if (uM && uM[1] === 'm') v /= 1000;
+        day(dM[1]).distance += v;
+
+      } else if (type === 'HKCategoryTypeIdentifierSleepAnalysis') {
+        const sM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2}):(\d{2})/);
+        const eM = a.match(/\bendDate="(\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2}):(\d{2})/);
+        const vM = a.match(/\bvalue="([^"]+)"/);
+        if (!sM || !eM || !vM) continue;
+        const val = vM[1];
+        const isSleep = val.includes('Asleep'); // Asleep, AsleepCore, AsleepDeep, AsleepREM, AsleepUnspecified
+        if (!isSleep) continue;
+        const startMs = new Date(`${sM[1]}T${sM[2]}:${sM[3]}:${sM[4]}`).getTime();
+        const endMs   = new Date(`${eM[1]}T${eM[2]}:${eM[3]}:${eM[4]}`).getTime();
+        const hours   = (endMs - startMs) / 3600000;
+        if (hours <= 0 || hours > 14) continue;
+        // Assign to morning date if end < 14:00, else to start date (nap)
+        const sleepDate = parseInt(eM[2]) < 14 ? eM[1] : sM[1];
+        const d = day(sleepDate);
+        d.sleep += hours;
+        d.hasSleep = true;
+      }
+    }
+    setProgress(true, 60 + Math.round((offset / total) * 35), `データを抽出中... ${Math.round(offset / total * 100)}%`);
+    await tick();
+  }
+  return result;
+}
+
+function renderAll() {
+  const weightDates = sortedDates.filter(d => dayMap[d].weight !== null);
+  const latestWeight = weightDates.length > 0 ? dayMap[weightDates[weightDates.length-1]].weight : null;
+  const weights = weightDates.map(d => dayMap[d].weight);
+  const fatDates  = sortedDates.filter(d => dayMap[d].bodyFat !== null);
+  const latestFat = fatDates.length > 0 ? dayMap[fatDates[fatDates.length-1]].bodyFat : null;
+
+  if (latestWeight !== null) {
+    document.getElementById('sLatest').textContent = latestWeight.toFixed(1);
+    document.getElementById('sMin').textContent    = Math.min(...weights).toFixed(1);
+    document.getElementById('sMax').textContent    = Math.max(...weights).toFixed(1);
+  }
+  document.getElementById('sFat').textContent   = latestFat !== null ? latestFat.toFixed(1) : '—';
+  document.getElementById('sCount').textContent = sortedDates.length;
+
+  // Default: last 6 months
+  const lastDate = sortedDates[sortedDates.length - 1];
+  const from = new Date(lastDate);
+  from.setMonth(from.getMonth() - 6);
+  document.getElementById('dateFrom').value = from.toISOString().slice(0, 10);
+  document.getElementById('dateTo').value   = lastDate;
+
+  document.getElementById('summaryRow').style.display    = 'grid';
+  document.getElementById('dateFilterWrap').style.display = 'block';
+  document.getElementById('tabsWrap').style.display       = 'block';
+  document.getElementById('tableWrap').style.display      = 'block';
+
+  applyFilter();
+}
+
+function applyFilter() {
+  const from = document.getElementById('dateFrom').value;
+  const to   = document.getElementById('dateTo').value;
+  const dates = sortedDates.filter(d => (!from || d >= from) && (!to || d <= to));
+  renderCharts(dates);
+  renderMonthlyTable(dates);
+  if (currentTab === 'daily') renderDetailTable(dates);
+}
+
+function resetFilter() {
+  document.getElementById('dateFrom').value = sortedDates[0];
+  document.getElementById('dateTo').value   = sortedDates[sortedDates.length - 1];
+  applyFilter();
+}
+
+function setRange(months) {
+  const to = sortedDates[sortedDates.length - 1];
+  const from = new Date(to);
+  from.setMonth(from.getMonth() - months);
+  document.getElementById('dateFrom').value = from.toISOString().slice(0, 10);
+  document.getElementById('dateTo').value   = to;
+  applyFilter();
+}
+
+// --- Charts ---
+function renderCharts(dates) {
+  // Weight
+  const wDates = dates.filter(d => dayMap[d].weight !== null);
+  if (hasWeight && wDates.length > 0) {
+    document.getElementById('weightChartWrap').style.display = 'block';
+    const wVals = wDates.map(d => dayMap[d].weight);
+    const ma7   = wVals.map((_, i) => {
+      const s = wVals.slice(Math.max(0, i-6), i+1);
+      return +(s.reduce((a,b)=>a+b,0)/s.length).toFixed(2);
+    });
+    destroyChart('weight');
+    charts.weight = new Chart(document.getElementById('weightChart').getContext('2d'), {
+      type: 'line',
+      data: { labels: wDates, datasets: [
+        { label: '体重 (kg)', data: wVals, borderColor: '#007aff', backgroundColor: 'rgba(0,122,255,0.07)', borderWidth: 1.5, pointRadius: wDates.length > 150 ? 0 : 3, pointHoverRadius: 5, fill: true, tension: 0.3 },
+        { label: '7日移動平均', data: ma7, borderColor: '#ff9500', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, tension: 0.4 }
+      ]},
+      options: chartOpts({ callback: v => v.toFixed(1)+' kg', tooltipSuffix: ' kg' })
+    });
+  } else {
+    document.getElementById('weightChartWrap').style.display = 'none';
+  }
+
+  // Body fat
+  const fDates = dates.filter(d => dayMap[d].bodyFat !== null);
+  if (hasFat && fDates.length > 0) {
+    document.getElementById('fatChartWrap').style.display = 'block';
+    const fVals = fDates.map(d => dayMap[d].bodyFat);
+    destroyChart('fat');
+    charts.fat = new Chart(document.getElementById('fatChart').getContext('2d'), {
+      type: 'line',
+      data: { labels: fDates, datasets: [
+        { label: '体脂肪率 (%)', data: fVals, borderColor: '#ff6b35', backgroundColor: 'rgba(255,107,53,0.08)', borderWidth: 1.5, pointRadius: fDates.length > 150 ? 0 : 3, pointHoverRadius: 5, fill: true, tension: 0.3 }
+      ]},
+      options: chartOpts({ callback: v => v.toFixed(1)+'%', tooltipSuffix: ' %' })
+    });
+  } else {
+    document.getElementById('fatChartWrap').style.display = 'none';
+  }
+
+  // Steps + Distance (dual axis)
+  if (hasActivity && dates.length > 0) {
+    const aDates = dates.filter(d => dayMap[d].steps > 0 || dayMap[d].distance > 0);
+    if (aDates.length > 0) {
+      document.getElementById('activityChartWrap').style.display = 'block';
+      const stepsVals = aDates.map(d => dayMap[d].steps);
+      const distVals  = aDates.map(d => +dayMap[d].distance.toFixed(2));
+      destroyChart('activity');
+      charts.activity = new Chart(document.getElementById('activityChart').getContext('2d'), {
+        data: {
+          labels: aDates,
+          datasets: [
+            { type: 'bar', label: '歩数', data: stepsVals, backgroundColor: 'rgba(52,199,89,0.55)', borderRadius: 2, yAxisID: 'ySteps', order: 2 },
+            { type: 'line', label: '距離 (km)', data: distVals, borderColor: '#5856d6', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: 'yDist', order: 1 }
+          ]
+        },
+        options: {
+          responsive: true,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'top', labels: { font: { size: 12 } } },
+            tooltip: {
+              callbacks: {
+                label: c => c.datasetIndex === 0
+                  ? `歩数: ${c.parsed.y.toLocaleString()} 歩`
+                  : `距離: ${c.parsed.y.toFixed(2)} km`
+              }
+            }
+          },
+          scales: {
+            x: { ticks: { maxTicksLimit: 10, font: { size: 11 } }, grid: { display: false } },
+            ySteps: { position: 'left',  ticks: { callback: v => (v/1000).toFixed(0)+'k', font: { size: 11 } }, title: { display: true, text: '歩数', font: { size: 11 } } },
+            yDist:  { position: 'right', ticks: { callback: v => v.toFixed(1)+' km', font: { size: 11 } }, title: { display: true, text: 'km', font: { size: 11 } }, grid: { drawOnChartArea: false } }
+          }
+        }
+      });
+    } else {
+      document.getElementById('activityChartWrap').style.display = 'none';
+    }
+  } else {
+    document.getElementById('activityChartWrap').style.display = 'none';
+  }
+
+  // Sleep
+  if (hasSleep && dates.length > 0) {
+    const sDates = dates.filter(d => dayMap[d].hasSleep);
+    if (sDates.length > 0) {
+      document.getElementById('sleepChartWrap').style.display = 'block';
+      const slVals = sDates.map(d => +dayMap[d].sleep.toFixed(2));
+      destroyChart('sleep');
+      charts.sleep = new Chart(document.getElementById('sleepChart').getContext('2d'), {
+        type: 'bar',
+        data: { labels: sDates, datasets: [
+          { label: '睡眠時間 (h)', data: slVals, backgroundColor: 'rgba(88,86,214,0.55)', borderRadius: 2 }
+        ]},
+        options: {
+          responsive: true,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'top', labels: { font: { size: 12 } } },
+            tooltip: { callbacks: { label: c => `睡眠: ${c.parsed.y.toFixed(1)} h` } }
+          },
+          scales: {
+            x: { ticks: { maxTicksLimit: 10, font: { size: 11 } }, grid: { display: false } },
+            y: { ticks: { callback: v => v.toFixed(1)+' h', font: { size: 11 } }, min: 0 }
+          }
+        }
+      });
+    } else {
+      document.getElementById('sleepChartWrap').style.display = 'none';
+    }
+  } else {
+    document.getElementById('sleepChartWrap').style.display = 'none';
+  }
+}
+
+function chartOpts({ callback, tooltipSuffix }) {
+  return {
+    responsive: true,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { position: 'top', labels: { font: { size: 12 } } },
+      tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(1)}${tooltipSuffix}` } }
+    },
+    scales: {
+      x: { ticks: { maxTicksLimit: 10, font: { size: 11 } }, grid: { display: false } },
+      y: { ticks: { callback, font: { size: 11 } }, grace: '3%' }
+    }
+  };
+}
+
+function destroyChart(key) {
+  if (charts[key]) { charts[key].destroy(); charts[key] = null; }
+}
+
+// --- Tables ---
+function renderMonthlyTable(dates) {
+  const monthly = {};
+  for (const date of dates) {
+    const m = date.slice(0, 7);
+    if (!monthly[m]) monthly[m] = { weights: [], fats: [], steps: 0, dist: 0, sleeps: [] };
+    const r = dayMap[date];
+    if (r.weight  !== null) monthly[m].weights.push(r.weight);
+    if (r.bodyFat !== null) monthly[m].fats.push(r.bodyFat);
+    monthly[m].steps += r.steps;
+    monthly[m].dist  += r.distance;
+    if (r.hasSleep) monthly[m].sleeps.push(r.sleep);
+  }
+  const months = Object.keys(monthly).sort().reverse();
+  const tbody = document.getElementById('tableBody');
+  tbody.innerHTML = '';
+  months.forEach((m, i) => {
+    const mv = monthly[m];
+    const avgW = mv.weights.length > 0 ? mv.weights.reduce((a,b)=>a+b,0)/mv.weights.length : null;
+    const avgF = mv.fats.length    > 0 ? mv.fats.reduce((a,b)=>a+b,0)/mv.fats.length       : null;
+    const avgS = mv.sleeps.length  > 0 ? mv.sleeps.reduce((a,b)=>a+b,0)/mv.sleeps.length   : null;
+    let trendHtml = '<span class="flat">—</span>';
+    if (avgW !== null && months[i+1]) {
+      const pv = monthly[months[i+1]];
+      const pAvg = pv.weights.length > 0 ? pv.weights.reduce((a,b)=>a+b,0)/pv.weights.length : null;
+      if (pAvg !== null) {
+        const diff = avgW - pAvg;
+        if      (diff >  0.05) trendHtml = `<span class="up">+${diff.toFixed(1)} kg</span>`;
+        else if (diff < -0.05) trendHtml = `<span class="down">${diff.toFixed(1)} kg</span>`;
+        else                   trendHtml = `<span class="flat">±0.0 kg</span>`;
+      }
+    }
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${m}</td>
+      <td>${avgW !== null ? `<strong>${avgW.toFixed(1)}</strong> kg` : '<span class="null">—</span>'}</td>
+      <td>${avgF !== null ? `${avgF.toFixed(1)} %` : '<span class="null">—</span>'}</td>
+      <td>${mv.steps > 0 ? mv.steps.toLocaleString()+' 歩' : '<span class="null">—</span>'}</td>
+      <td>${mv.dist  > 0 ? mv.dist.toFixed(1)+' km' : '<span class="null">—</span>'}</td>
+      <td>${avgS !== null ? avgS.toFixed(1)+' h' : '<span class="null">—</span>'}</td>
+      <td>${trendHtml}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderDetailTable(dates) {
+  const tbody = document.getElementById('detailBody');
+  tbody.innerHTML = '';
+  for (const date of [...dates].reverse()) {
+    const r = dayMap[date];
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${date}</td>
+      <td>${r.weight  !== null ? r.weight.toFixed(1)+' kg'  : '<span class="null">—</span>'}</td>
+      <td>${r.bodyFat !== null ? r.bodyFat.toFixed(1)+' %'  : '<span class="null">—</span>'}</td>
+      <td>${r.steps   >  0    ? r.steps.toLocaleString()+' 歩' : '<span class="null">—</span>'}</td>
+      <td>${r.distance > 0   ? r.distance.toFixed(2)+' km' : '<span class="null">—</span>'}</td>
+      <td>${r.hasSleep       ? r.sleep.toFixed(1)+' h'     : '<span class="null">—</span>'}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+// --- Tab switching ---
+function switchTab(tab) {
+  currentTab = tab;
+  document.getElementById('tabMonthly').classList.toggle('active', tab === 'monthly');
+  document.getElementById('tabDaily').classList.toggle('active', tab === 'daily');
+  document.getElementById('tableWrap').style.display  = tab === 'monthly' ? 'block' : 'none';
+  document.getElementById('detailWrap').style.display = tab === 'daily'   ? 'block' : 'none';
+  if (tab === 'daily') {
+    const from = document.getElementById('dateFrom').value;
+    const to   = document.getElementById('dateTo').value;
+    const dates = sortedDates.filter(d => (!from || d >= from) && (!to || d <= to));
+    renderDetailTable(dates);
+  }
+}
+
+// --- Helpers ---
+function setProgress(show, pct = 0, label = '') {
+  document.getElementById('progressWrap').style.display = show ? 'block' : 'none';
+  document.getElementById('barFill').style.width = pct + '%';
+  document.getElementById('progressLabel').textContent = label;
+}
+function hideResults() {
+  ['summaryRow','dateFilterWrap','weightChartWrap','fatChartWrap','activityChartWrap','sleepChartWrap','tabsWrap','tableWrap','detailWrap']
+    .forEach(id => document.getElementById(id).style.display = 'none');
+}
+function showError(msg) { const el = document.getElementById('errorBox'); el.textContent = msg; el.style.display = 'block'; }
+function hideError() { document.getElementById('errorBox').style.display = 'none'; }
+function tick() { return new Promise(r => setTimeout(r, 30)); }
+</script>
+</body>
+</html>
