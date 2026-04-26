@@ -164,6 +164,11 @@
   <h1>ヘルスケアビューア</h1>
   <p class="subtitle">Apple ヘルスケアのエクスポートZIPをドロップしてデータを可視化します &nbsp;|&nbsp; <span style="font-size:11px;">ver 1.0.0</span></p>
 
+  <div id="sizeWarnBox" style="display:none;background:#fff3cd;border:1px solid #ffc107;border-radius:12px;padding:14px 18px;margin-bottom:14px;font-size:13px;color:#664d03;line-height:1.6;">
+    <strong>ファイルサイズが大きいため、iPhoneのブラウザではクラッシュする可能性があります。</strong><br>
+    PCのブラウザでの利用を推奨します。iPhoneで続ける場合はそのままお待ちください。
+  </div>
+
   <div class="drop-zone" id="dropZone">
     <div class="drop-icon">📦</div>
     <div class="drop-main">書き出したデータ.zip をここにドロップ</div>
@@ -308,9 +313,12 @@ async function processFile(file) {
   hideError(); hideResults();
   try {
     const MB = file.size / 1024 / 1024;
+    const warnBox = document.getElementById('sizeWarnBox');
     if (MB > 150) {
-      const ok = confirm(`ファイルサイズが ${MB.toFixed(0)} MB あります。iPhoneのブラウザでは処理中にクラッシュする可能性があります。\nPCブラウザでの利用を推奨します。\n\n続けますか？`);
-      if (!ok) { setProgress(false); return; }
+      warnBox.style.display = 'block';
+      await tick();
+    } else {
+      warnBox.style.display = 'none';
     }
     const buf = await file.arrayBuffer();
     setProgress(true, 20, 'ZIPを解凍中...'); await tick();
