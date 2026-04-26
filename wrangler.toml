@@ -2,4 +2,4 @@ name = "healthviewer"
 compatibility_date = "2026-04-26"
 
 [assets]
-directory = "."
+directory = "./public"
