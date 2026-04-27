@@ -300,12 +300,13 @@
 </div>
 
 <script>
-// iOSでアクセスした場合、sizeWarnBoxを最初から表示
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+
+// iOSでアクセスした場合、案内を表示
 (function() {
-  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
   if (isIOS) {
     const box = document.getElementById('sizeWarnBox');
-    box.innerHTML = '<strong>iPhoneのブラウザで開いています。</strong><br>データ量が多い場合、処理中にクラッシュする可能性があります。<br>可能であればPCのブラウザでご利用ください。iPhoneのまま続ける場合はそのままファイルを選択してください。';
+    box.innerHTML = '<strong>iPhoneのブラウザで開いています。</strong><br>メモリ節約のため、<strong>直近1週間のデータのみ</strong>を読み込みます。全期間を確認するにはPCのブラウザをご利用ください。';
     box.style.display = 'block';
   }
 })();
@@ -337,6 +338,12 @@ async function processFile(file) {
     } else {
       warnBox.style.display = 'none';
     }
+    let parseCutoff = null;
+    if (isIOS) {
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - 7);
+      parseCutoff = cutoffDate.toISOString().slice(0, 10);
+    }
     const buf = await file.arrayBuffer();
     setProgress(true, 20, 'ZIPを解凍中...'); await tick();
     const zip = await JSZip.loadAsync(buf);
@@ -344,8 +351,11 @@ async function processFile(file) {
     if (!entry) throw new Error('apple_health_export/export.xml が見つかりません。');
     setProgress(true, 40, 'XMLを展開中...'); await tick();
     const uint8 = await entry.async('uint8array');
-    setProgress(true, 60, `データを抽出中（${(uint8.length/1024/1024).toFixed(0)} MB）...`); await tick();
-    dayMap = await parseAll(uint8);
+    const parseLabel = isIOS
+      ? `直近1週間のデータを抽出中（${(uint8.length/1024/1024).toFixed(0)} MB）...`
+      : `データを抽出中（${(uint8.length/1024/1024).toFixed(0)} MB）...`;
+    setProgress(true, 60, parseLabel); await tick();
+    dayMap = await parseAll(uint8, parseCutoff);
     sortedDates = Object.keys(dayMap).sort();
     if (sortedDates.length === 0) throw new Error('データが見つかりませんでした。');
     hasWeight   = sortedDates.some(d => dayMap[d].weight !== null);
@@ -362,7 +372,7 @@ async function processFile(file) {
   }
 }
 
-async function parseAll(uint8) {
+async function parseAll(uint8, cutoff = null) {
   const CHUNK = 20 * 1024 * 1024;
   const OVERLAP = 2000;
   const decoder = new TextDecoder('utf-8');
@@ -391,6 +401,7 @@ async function parseAll(uint8) {
         const vM = a.match(/\bvalue="([0-9.]+)"/);
         const uM = a.match(/\bunit="([^"]+)"/);
         if (!dM || !vM) continue;
+        if (cutoff && dM[1] < cutoff) continue;
         let v = parseFloat(vM[1]);
         if (uM && uM[1] === 'lb') v = +(v * 0.453592).toFixed(2);
         day(dM[1]).weight = v;
@@ -399,6 +410,7 @@ async function parseAll(uint8) {
         const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
         const vM = a.match(/\bvalue="([0-9.]+)"/);
         if (!dM || !vM) continue;
+        if (cutoff && dM[1] < cutoff) continue;
         let v = parseFloat(vM[1]);
         if (v <= 1.0) v *= 100;
         day(dM[1]).bodyFat = +v.toFixed(1);
@@ -407,6 +419,7 @@ async function parseAll(uint8) {
         const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
         const vM = a.match(/\bvalue="([0-9.]+)"/);
         if (!dM || !vM) continue;
+        if (cutoff && dM[1] < cutoff) continue;
         day(dM[1]).steps += Math.round(parseFloat(vM[1]));
 
       } else if (type === 'HKQuantityTypeIdentifierDistanceWalkingRunning') {
@@ -414,6 +427,7 @@ async function parseAll(uint8) {
         const vM = a.match(/\bvalue="([0-9.]+)"/);
         const uM = a.match(/\bunit="([^"]+)"/);
         if (!dM || !vM) continue;
+        if (cutoff && dM[1] < cutoff) continue;
         let v = parseFloat(vM[1]);
         if (uM && uM[1] === 'm') v /= 1000;
         day(dM[1]).distance += v;
@@ -423,6 +437,7 @@ async function parseAll(uint8) {
         const eM = a.match(/\bendDate="(\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2}):(\d{2})/);
         const vM = a.match(/\bvalue="([^"]+)"/);
         if (!sM || !eM || !vM) continue;
+        if (cutoff && sM[1] < cutoff) continue;
         const val = vM[1];
         const isSleep = val.includes('Asleep'); // Asleep, AsleepCore, AsleepDeep, AsleepREM, AsleepUnspecified
         if (!isSleep) continue;
@@ -458,10 +473,13 @@ function renderAll() {
   document.getElementById('sFat').textContent   = latestFat !== null ? latestFat.toFixed(1) : '—';
   document.getElementById('sCount').textContent = sortedDates.length;
 
-  // Default: last 6 months
   const lastDate = sortedDates[sortedDates.length - 1];
   const from = new Date(lastDate);
-  from.setMonth(from.getMonth() - 6);
+  if (isIOS) {
+    from.setDate(from.getDate() - 7);
+  } else {
+    from.setMonth(from.getMonth() - 6);
+  }
   document.getElementById('dateFrom').value = from.toISOString().slice(0, 10);
   document.getElementById('dateTo').value   = lastDate;
 
