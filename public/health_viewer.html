@@ -162,7 +162,7 @@
 </div>
 <div class="container">
   <h1>ヘルスケアビューア</h1>
-  <p class="subtitle">Apple ヘルスケアのエクスポートZIPをドロップしてデータを可視化します &nbsp;|&nbsp; <span style="font-size:11px;">ver 1.0.0</span></p>
+  <p class="subtitle">Apple ヘルスケアのエクスポートZIPをドロップしてデータを可視化します &nbsp;|&nbsp; <span style="font-size:11px;">ver 1.1.0</span></p>
 
   <div style="background:#f2f2f7;border-radius:12px;padding:12px 16px;margin-bottom:16px;font-size:12px;color:#3a3a3c;line-height:1.7;">
     <strong>注意事項</strong><br>
@@ -179,8 +179,8 @@
   <div class="drop-zone" id="dropZone">
     <div class="drop-icon">📦</div>
     <div class="drop-main">書き出したデータ.zip をここにドロップ</div>
-    <div class="drop-sub">またはクリックしてファイルを選択 — データはこのデバイスから出ません</div>
-    <input type="file" id="fileInput" accept=".zip">
+    <div class="drop-sub">またはクリックしてファイルを選択 — .zip / export.xml どちらでも可 — データはこのデバイスから出ません</div>
+    <input type="file" id="fileInput" accept=".zip,.xml">
   </div>
 
   <div class="progress-wrap" id="progressWrap">
@@ -306,7 +306,9 @@ const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
 (function() {
   if (isIOS) {
     const box = document.getElementById('sizeWarnBox');
-    box.innerHTML = '<strong>iPhoneのブラウザで開いています。</strong><br>メモリ節約のため、<strong>直近1週間のデータのみ</strong>を読み込みます。全期間を確認するにはPCのブラウザをご利用ください。';
+    box.innerHTML = '<strong>iPhoneで全期間のデータを見るには：</strong><br>'
+      + '① 別のアプリ（Files等）でZIPを解凍 → apple_health_export フォルダ内の <strong>export.xml</strong> を選択<br>'
+      + '② ZIPのままの場合は直近1週間のみ読み込みます（データが多いとクラッシュする可能性があります）';
     box.style.display = 'block';
   }
 })();
@@ -316,6 +318,7 @@ let sortedDates = [];
 let charts = { weight: null, fat: null, activity: null, sleep: null };
 let currentTab = 'monthly';
 let hasWeight = false, hasFat = false, hasActivity = false, hasSleep = false;
+let xmlMode = false;
 
 // Drop zone
 const dropZone = document.getElementById('dropZone');
@@ -327,35 +330,44 @@ dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.
 fileInput.addEventListener('change', e => { if (e.target.files[0]) processFile(e.target.files[0]); });
 
 async function processFile(file) {
-  setProgress(true, 0, 'ZIPファイルを読み込み中...');
+  xmlMode = file.name.toLowerCase().endsWith('.xml');
+  setProgress(true, 0, xmlMode ? 'XMLファイルを読み込み中...' : 'ZIPファイルを読み込み中...');
   hideError(); hideResults();
   try {
-    const MB = file.size / 1024 / 1024;
-    const warnBox = document.getElementById('sizeWarnBox');
-    if (MB > 150) {
-      warnBox.style.display = 'block';
-      await tick();
+    if (xmlMode) {
+      // export.xml 直接選択 — File.slice() でチャンク読み込みするためメモリ効率的
+      const MB = file.size / 1024 / 1024;
+      setProgress(true, 10, `データを抽出中（${MB.toFixed(0)} MB）...`); await tick();
+      dayMap = await parseXmlFile(file);
     } else {
-      warnBox.style.display = 'none';
+      // ZIP経由（既存フロー）
+      let parseCutoff = null;
+      if (isIOS) {
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - 7);
+        parseCutoff = cutoffDate.toISOString().slice(0, 10);
+      }
+      const MB = file.size / 1024 / 1024;
+      const warnBox = document.getElementById('sizeWarnBox');
+      if (isIOS || MB > 150) {
+        warnBox.style.display = 'block';
+        await tick();
+      } else {
+        warnBox.style.display = 'none';
+      }
+      const buf = await file.arrayBuffer();
+      setProgress(true, 20, 'ZIPを解凍中...'); await tick();
+      const zip = await JSZip.loadAsync(buf);
+      const entry = zip.file('apple_health_export/export.xml');
+      if (!entry) throw new Error('apple_health_export/export.xml が見つかりません。');
+      setProgress(true, 40, 'XMLを展開中...'); await tick();
+      const uint8 = await entry.async('uint8array');
+      const parseLabel = isIOS
+        ? `直近1週間のデータを抽出中（${(uint8.length/1024/1024).toFixed(0)} MB）...`
+        : `データを抽出中（${(uint8.length/1024/1024).toFixed(0)} MB）...`;
+      setProgress(true, 60, parseLabel); await tick();
+      dayMap = await parseAll(uint8, parseCutoff);
     }
-    let parseCutoff = null;
-    if (isIOS) {
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - 7);
-      parseCutoff = cutoffDate.toISOString().slice(0, 10);
-    }
-    const buf = await file.arrayBuffer();
-    setProgress(true, 20, 'ZIPを解凍中...'); await tick();
-    const zip = await JSZip.loadAsync(buf);
-    const entry = zip.file('apple_health_export/export.xml');
-    if (!entry) throw new Error('apple_health_export/export.xml が見つかりません。');
-    setProgress(true, 40, 'XMLを展開中...'); await tick();
-    const uint8 = await entry.async('uint8array');
-    const parseLabel = isIOS
-      ? `直近1週間のデータを抽出中（${(uint8.length/1024/1024).toFixed(0)} MB）...`
-      : `データを抽出中（${(uint8.length/1024/1024).toFixed(0)} MB）...`;
-    setProgress(true, 60, parseLabel); await tick();
-    dayMap = await parseAll(uint8, parseCutoff);
     sortedDates = Object.keys(dayMap).sort();
     if (sortedDates.length === 0) throw new Error('データが見つかりませんでした。');
     hasWeight   = sortedDates.some(d => dayMap[d].weight !== null);
@@ -458,6 +470,85 @@ async function parseAll(uint8, cutoff = null) {
   return result;
 }
 
+// export.xml を File.slice() でチャンク読み込み（全量をRAMに乗せないためiPhoneでも動作）
+async function parseXmlFile(file, cutoff = null) {
+  const CHUNK = 20 * 1024 * 1024;
+  const OVERLAP = 2000;
+  const re = /<Record\b([^\n]*?)\/>/g;
+  const result = {};
+  const total = file.size;
+
+  function day(date) {
+    if (!result[date]) result[date] = { weight: null, bodyFat: null, steps: 0, distance: 0, sleep: 0, hasSleep: false };
+    return result[date];
+  }
+
+  for (let offset = 0; offset < total; offset += CHUNK - OVERLAP) {
+    const chunk = await file.slice(offset, Math.min(offset + CHUNK, total)).text();
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(chunk)) !== null) {
+      const a = m[1];
+      const tM = a.match(/\btype="([^"]+)"/);
+      if (!tM) continue;
+      const type = tM[1];
+
+      if (type === 'HKQuantityTypeIdentifierBodyMass') {
+        const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
+        const vM = a.match(/\bvalue="([0-9.]+)"/);
+        const uM = a.match(/\bunit="([^"]+)"/);
+        if (!dM || !vM) continue;
+        if (cutoff && dM[1] < cutoff) continue;
+        let v = parseFloat(vM[1]);
+        if (uM && uM[1] === 'lb') v = +(v * 0.453592).toFixed(2);
+        day(dM[1]).weight = v;
+      } else if (type === 'HKQuantityTypeIdentifierBodyFatPercentage') {
+        const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
+        const vM = a.match(/\bvalue="([0-9.]+)"/);
+        if (!dM || !vM) continue;
+        if (cutoff && dM[1] < cutoff) continue;
+        let v = parseFloat(vM[1]);
+        if (v <= 1.0) v *= 100;
+        day(dM[1]).bodyFat = +v.toFixed(1);
+      } else if (type === 'HKQuantityTypeIdentifierStepCount') {
+        const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
+        const vM = a.match(/\bvalue="([0-9.]+)"/);
+        if (!dM || !vM) continue;
+        if (cutoff && dM[1] < cutoff) continue;
+        day(dM[1]).steps += Math.round(parseFloat(vM[1]));
+      } else if (type === 'HKQuantityTypeIdentifierDistanceWalkingRunning') {
+        const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
+        const vM = a.match(/\bvalue="([0-9.]+)"/);
+        const uM = a.match(/\bunit="([^"]+)"/);
+        if (!dM || !vM) continue;
+        if (cutoff && dM[1] < cutoff) continue;
+        let v = parseFloat(vM[1]);
+        if (uM && uM[1] === 'm') v /= 1000;
+        day(dM[1]).distance += v;
+      } else if (type === 'HKCategoryTypeIdentifierSleepAnalysis') {
+        const sM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2}):(\d{2})/);
+        const eM = a.match(/\bendDate="(\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2}):(\d{2})/);
+        const vM = a.match(/\bvalue="([^"]+)"/);
+        if (!sM || !eM || !vM) continue;
+        if (cutoff && sM[1] < cutoff) continue;
+        const isSleep = vM[1].includes('Asleep');
+        if (!isSleep) continue;
+        const startMs = new Date(`${sM[1]}T${sM[2]}:${sM[3]}:${sM[4]}`).getTime();
+        const endMs   = new Date(`${eM[1]}T${eM[2]}:${eM[3]}:${eM[4]}`).getTime();
+        const hours   = (endMs - startMs) / 3600000;
+        if (hours <= 0 || hours > 14) continue;
+        const sleepDate = parseInt(eM[2]) < 14 ? eM[1] : sM[1];
+        const d = day(sleepDate);
+        d.sleep += hours;
+        d.hasSleep = true;
+      }
+    }
+    setProgress(true, 10 + Math.round((offset / total) * 85), `データを抽出中... ${Math.round(offset / total * 100)}%`);
+    await tick();
+  }
+  return result;
+}
+
 function renderAll() {
   const weightDates = sortedDates.filter(d => dayMap[d].weight !== null);
   const latestWeight = weightDates.length > 0 ? dayMap[weightDates[weightDates.length-1]].weight : null;
@@ -475,10 +566,10 @@ function renderAll() {
 
   const lastDate = sortedDates[sortedDates.length - 1];
   const from = new Date(lastDate);
-  if (isIOS) {
-    from.setDate(from.getDate() - 7);
+  if (isIOS && !xmlMode) {
+    from.setDate(from.getDate() - 7);   // ZIP経由iPhone: 1週間
   } else {
-    from.setMonth(from.getMonth() - 6);
+    from.setMonth(from.getMonth() - 6); // XML直読み or PC: 6ヶ月
   }
   document.getElementById('dateFrom').value = from.toISOString().slice(0, 10);
   document.getElementById('dateTo').value   = lastDate;
