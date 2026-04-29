@@ -152,6 +152,27 @@
     .down { color: #34c759; }
     .flat { color: #8e8e93; }
     .null { color: #c7c7cc; font-size: 12px; }
+
+    /* AI analysis */
+    .ai-wrap { display: none; background: white; border-radius: 18px; padding: 24px; margin-top: 12px; }
+    .ai-desc { font-size: 13px; color: #3a3a3c; line-height: 1.6; margin-bottom: 10px; }
+    .ai-period { font-size: 12px; color: #8e8e93; margin-bottom: 12px; }
+    .ai-textarea {
+      width: 100%;
+      min-height: 300px;
+      font-family: 'Menlo', 'SF Mono', 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      border: 1px solid #d1d1d6;
+      border-radius: 10px;
+      padding: 14px;
+      color: #1d1d1f;
+      background: #f9f9fb;
+      resize: vertical;
+      outline: none;
+    }
+    .ai-footer { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
+    .ai-chars { font-size: 12px; color: #8e8e93; }
   </style>
 </head>
 <body>
@@ -263,6 +284,7 @@
     <div class="tab-row">
       <button class="tab-btn active" id="tabMonthly" onclick="switchTab('monthly')">月別</button>
       <button class="tab-btn" id="tabDaily" onclick="switchTab('daily')">日別（詳細）</button>
+      <button class="tab-btn" id="tabAi" onclick="switchTab('ai')">AI分析</button>
     </div>
   </div>
 
@@ -304,6 +326,17 @@
         </thead>
         <tbody id="detailBody"></tbody>
       </table>
+    </div>
+  </div>
+
+  <div class="ai-wrap" id="aiWrap">
+    <div class="table-title">AI分析プロンプト</div>
+    <p class="ai-desc">以下のプロンプトをコピーして、ChatGPT・Claude・Gemini等に貼り付けると健康データを分析してもらえます。</p>
+    <p class="ai-period" id="aiPeriod"></p>
+    <textarea class="ai-textarea" id="aiTextarea" readonly></textarea>
+    <div class="ai-footer">
+      <button class="btn" id="copyBtn" onclick="copyPrompt()">コピー</button>
+      <span class="ai-chars" id="aiChars"></span>
     </div>
   </div>
 </div>
@@ -575,6 +608,7 @@ function applyFilter() {
   renderCharts(dates);
   renderMonthlyTable(dates);
   if (currentTab === 'daily') renderDetailTable(dates);
+  if (currentTab === 'ai') renderAiPrompt();
 }
 
 function resetFilter() {
@@ -834,14 +868,17 @@ function switchTab(tab) {
   currentTab = tab;
   document.getElementById('tabMonthly').classList.toggle('active', tab === 'monthly');
   document.getElementById('tabDaily').classList.toggle('active', tab === 'daily');
+  document.getElementById('tabAi').classList.toggle('active', tab === 'ai');
   document.getElementById('tableWrap').style.display  = tab === 'monthly' ? 'block' : 'none';
   document.getElementById('detailWrap').style.display = tab === 'daily'   ? 'block' : 'none';
+  document.getElementById('aiWrap').style.display     = tab === 'ai'      ? 'block' : 'none';
   if (tab === 'daily') {
     const from = document.getElementById('dateFrom').value;
     const to   = document.getElementById('dateTo').value;
     const dates = sortedDates.filter(d => (!from || d >= from) && (!to || d <= to));
     renderDetailTable(dates);
   }
+  if (tab === 'ai') renderAiPrompt();
 }
 
 // --- Helpers ---
@@ -851,12 +888,125 @@ function setProgress(show, pct = 0, label = '') {
   document.getElementById('progressLabel').textContent = label;
 }
 function hideResults() {
-  ['summaryRow','dateFilterWrap','weightChartWrap','fatChartWrap','activityChartWrap','calorieChartWrap','sleepChartWrap','tabsWrap','tableWrap','detailWrap']
+  ['summaryRow','dateFilterWrap','weightChartWrap','fatChartWrap','activityChartWrap','calorieChartWrap','sleepChartWrap','tabsWrap','tableWrap','detailWrap','aiWrap']
     .forEach(id => document.getElementById(id).style.display = 'none');
 }
 function showError(msg) { const el = document.getElementById('errorBox'); el.textContent = msg; el.style.display = 'block'; }
 function hideError() { document.getElementById('errorBox').style.display = 'none'; }
 function tick() { return new Promise(r => setTimeout(r, 30)); }
+
+// --- AI Analysis ---
+function renderAiPrompt() {
+  const from = document.getElementById('dateFrom').value;
+  const to   = document.getElementById('dateTo').value;
+  const dates = sortedDates.filter(d => (!from || d >= from) && (!to || d <= to));
+
+  if (dates.length === 0) {
+    document.getElementById('aiTextarea').value = 'データがありません。';
+    return;
+  }
+
+  // Monthly aggregation
+  const monthly = {};
+  for (const date of dates) {
+    const m = date.slice(0, 7);
+    if (!monthly[m]) monthly[m] = { weights: [], fats: [], steps: 0, calories: 0, sleeps: [] };
+    const r = dayMap[date];
+    if (r.weight  !== null) monthly[m].weights.push(r.weight);
+    if (r.bodyFat !== null) monthly[m].fats.push(r.bodyFat);
+    monthly[m].steps    += r.steps;
+    monthly[m].calories += r.activeCalories;
+    if (r.hasSleep) monthly[m].sleeps.push(r.sleep);
+  }
+
+  // Sort ascending, limit to 12 months
+  let months = Object.keys(monthly).sort();
+  if (months.length > 12) months = months.slice(months.length - 12);
+
+  // Helpers
+  const avg = arr => arr.length > 0 ? arr.reduce((a,b)=>a+b,0)/arr.length : null;
+  const fmtM = m => { const [y, mo] = m.split('-'); return `${y}年${parseInt(mo)}月`; };
+
+  // Period label
+  const periodLabel = months.length > 1
+    ? `${fmtM(months[0])} 〜 ${fmtM(months[months.length-1])}（${months.length}ヶ月）`
+    : fmtM(months[0]);
+
+  // Table rows
+  const tableRows = months.map(m => {
+    const mv = monthly[m];
+    const w = avg(mv.weights);
+    const f = avg(mv.fats);
+    const s = avg(mv.sleeps);
+    return `| ${m.replace('-','/')} | ${w !== null ? w.toFixed(1) : '—'} | ${f !== null ? f.toFixed(1) : '—'} | ${mv.steps > 0 ? mv.steps.toLocaleString() : '—'} | ${mv.calories > 0 ? Math.round(mv.calories).toLocaleString() : '—'} | ${s !== null ? s.toFixed(1) : '—'} |`;
+  }).join('\n');
+
+  // 7-day average
+  const last7 = dates.slice(-7);
+  const r7 = { weights: [], fats: [], steps: 0, calories: 0, sleeps: [] };
+  for (const d of last7) {
+    const r = dayMap[d];
+    if (r.weight  !== null) r7.weights.push(r.weight);
+    if (r.bodyFat !== null) r7.fats.push(r.bodyFat);
+    r7.steps    += r.steps;
+    r7.calories += r.activeCalories;
+    if (r.hasSleep) r7.sleeps.push(r.sleep);
+  }
+  const n = last7.length || 1;
+  const r7wv  = avg(r7.weights);
+  const r7fv  = avg(r7.fats);
+  const r7slv = avg(r7.sleeps);
+  const r7w  = r7wv  !== null ? r7wv.toFixed(1)+' kg' : '—';
+  const r7f  = r7fv  !== null ? r7fv.toFixed(1)+'%' : '—';
+  const r7st = Math.round(r7.steps / n).toLocaleString()+'歩';
+  const r7c  = Math.round(r7.calories / n).toLocaleString()+' kcal';
+  const r7sl = r7slv !== null ? r7slv.toFixed(1)+' h' : '—';
+
+  const prompt =
+`あなたは健康管理の専門家です。
+以下はApple ヘルスケアアプリから取得した私の健康データです。
+
+【記録期間】${periodLabel}
+
+【月別サマリー】
+| 月 | 体重(kg) | 体脂肪(%) | 歩数(歩) | 消費(kcal) | 睡眠(h) |
+|---|---|---|---|---|---|
+${tableRows}
+
+【直近7日の平均】
+体重: ${r7w} / 体脂肪率: ${r7f} / 歩数: ${r7st}
+消費カロリー: ${r7c} / 睡眠: ${r7sl}
+
+【分析の依頼】
+以下の4点を分析してください。
+
+1.【体重・体組成】体重と体脂肪率の変化傾向を評価し、ダイエット・維持の進捗と停滞期の有無を指摘してください。
+
+2.【活動量】歩数・消費カロリーから活動レベルを評価し、改善するための具体的な目標と方法を提案してください。
+
+3.【睡眠】睡眠時間のパターンを評価し、理想の睡眠時間との比較と改善アドバイスを教えてください。
+
+4.【総合】上記を踏まえ、今後1ヶ月で優先して取り組むべき行動を3つ、具体的に提案してください。`;
+
+  document.getElementById('aiTextarea').value = prompt;
+  document.getElementById('aiChars').textContent = `${prompt.length.toLocaleString()} 文字`;
+  document.getElementById('aiPeriod').textContent =
+    `対象期間: ${from || sortedDates[0]} 〜 ${to || sortedDates[sortedDates.length-1]}`;
+  document.getElementById('copyBtn').textContent = 'コピー';
+}
+
+async function copyPrompt() {
+  const text = document.getElementById('aiTextarea').value;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    document.getElementById('aiTextarea').select();
+    document.execCommand('copy');
+  }
+  const btn = document.getElementById('copyBtn');
+  btn.textContent = 'コピーしました';
+  setTimeout(() => { btn.textContent = 'コピー'; }, 2000);
+}
 </script>
 </body>
 </html>
