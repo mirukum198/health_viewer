@@ -897,18 +897,26 @@ function tick() { return new Promise(r => setTimeout(r, 30)); }
 
 // --- AI Analysis ---
 function renderAiPrompt() {
-  const from = document.getElementById('dateFrom').value;
-  const to   = document.getElementById('dateTo').value;
-  const dates = sortedDates.filter(d => (!from || d >= from) && (!to || d <= to));
+  if (sortedDates.length === 0) return;
 
-  if (dates.length === 0) {
+  // フィルター無視・常に直近1年を対象
+  const latestDate = sortedDates[sortedDates.length - 1];
+  const oneYearAgo = new Date(latestDate);
+  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+  const oneYearAgoStr = oneYearAgo.toISOString().slice(0, 10);
+  const yearDates = sortedDates.filter(d => d > oneYearAgoStr);
+
+  if (yearDates.length === 0) {
     document.getElementById('aiTextarea').value = 'データがありません。';
     return;
   }
 
+  const avg = arr => arr.length > 0 ? arr.reduce((a,b)=>a+b,0)/arr.length : null;
+  const fmtM = m => { const [y, mo] = m.split('-'); return `${y}年${parseInt(mo)}月`; };
+
   // Monthly aggregation
   const monthly = {};
-  for (const date of dates) {
+  for (const date of yearDates) {
     const m = date.slice(0, 7);
     if (!monthly[m]) monthly[m] = { weights: [], fats: [], steps: 0, calories: 0, sleeps: [] };
     const r = dayMap[date];
@@ -919,21 +927,15 @@ function renderAiPrompt() {
     if (r.hasSleep) monthly[m].sleeps.push(r.sleep);
   }
 
-  // Sort ascending, limit to 12 months
   let months = Object.keys(monthly).sort();
   if (months.length > 12) months = months.slice(months.length - 12);
 
-  // Helpers
-  const avg = arr => arr.length > 0 ? arr.reduce((a,b)=>a+b,0)/arr.length : null;
-  const fmtM = m => { const [y, mo] = m.split('-'); return `${y}年${parseInt(mo)}月`; };
-
-  // Period label
   const periodLabel = months.length > 1
     ? `${fmtM(months[0])} 〜 ${fmtM(months[months.length-1])}（${months.length}ヶ月）`
     : fmtM(months[0]);
 
-  // Table rows
-  const tableRows = months.map(m => {
+  // Monthly table rows
+  const monthlyRows = months.map(m => {
     const mv = monthly[m];
     const w = avg(mv.weights);
     const f = avg(mv.fats);
@@ -941,8 +943,33 @@ function renderAiPrompt() {
     return `| ${m.replace('-','/')} | ${w !== null ? w.toFixed(1) : '—'} | ${f !== null ? f.toFixed(1) : '—'} | ${mv.steps > 0 ? mv.steps.toLocaleString() : '—'} | ${mv.calories > 0 ? Math.round(mv.calories).toLocaleString() : '—'} | ${s !== null ? s.toFixed(1) : '—'} |`;
   }).join('\n');
 
+  // 当月・前月の日別データ
+  const latestMonth = latestDate.slice(0, 7);
+  const prevMonthDate = new Date(latestMonth + '-01');
+  prevMonthDate.setMonth(prevMonthDate.getMonth() - 1);
+  const prevMonth = prevMonthDate.toISOString().slice(0, 7);
+
+  const dailyHeader = `| 日付 | 体重(kg) | 体脂肪(%) | 歩数(歩) | 消費(kcal) | 睡眠(h) |\n|---|---|---|---|---|---|`;
+  const buildDailyRows = dates => dates.map(d => {
+    const r = dayMap[d];
+    const w  = r.weight         !== null ? r.weight.toFixed(1)         : '—';
+    const f  = r.bodyFat        !== null ? r.bodyFat.toFixed(1)        : '—';
+    const st = r.steps          >  0    ? r.steps.toLocaleString()     : '—';
+    const c  = r.activeCalories >  0    ? Math.round(r.activeCalories) : '—';
+    const sl = r.hasSleep               ? r.sleep.toFixed(1)           : '—';
+    return `| ${d} | ${w} | ${f} | ${st} | ${c} | ${sl} |`;
+  }).join('\n');
+
+  const prevDates    = yearDates.filter(d => d.startsWith(prevMonth));
+  const currentDates = yearDates.filter(d => d.startsWith(latestMonth));
+
+  const dailySections = [
+    prevDates.length    > 0 ? `【前月日別：${fmtM(prevMonth)}】\n${dailyHeader}\n${buildDailyRows(prevDates)}`       : '',
+    currentDates.length > 0 ? `【当月日別：${fmtM(latestMonth)}】\n${dailyHeader}\n${buildDailyRows(currentDates)}` : ''
+  ].filter(Boolean).join('\n\n');
+
   // 7-day average
-  const last7 = dates.slice(-7);
+  const last7 = yearDates.slice(-7);
   const r7 = { weights: [], fats: [], steps: 0, calories: 0, sleeps: [] };
   for (const d of last7) {
     const r = dayMap[d];
@@ -971,7 +998,9 @@ function renderAiPrompt() {
 【月別サマリー】
 | 月 | 体重(kg) | 体脂肪(%) | 歩数(歩) | 消費(kcal) | 睡眠(h) |
 |---|---|---|---|---|---|
-${tableRows}
+${monthlyRows}
+
+${dailySections}
 
 【直近7日の平均】
 体重: ${r7w} / 体脂肪率: ${r7f} / 歩数: ${r7st}
@@ -990,8 +1019,7 @@ ${tableRows}
 
   document.getElementById('aiTextarea').value = prompt;
   document.getElementById('aiChars').textContent = `${prompt.length.toLocaleString()} 文字`;
-  document.getElementById('aiPeriod').textContent =
-    `対象期間: ${from || sortedDates[0]} 〜 ${to || sortedDates[sortedDates.length-1]}`;
+  document.getElementById('aiPeriod').textContent = `対象期間: 直近1年（${periodLabel}）`;
   document.getElementById('copyBtn').textContent = 'コピー';
 }
 
