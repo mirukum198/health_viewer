@@ -152,6 +152,43 @@
     .down { color: #34c759; }
     .flat { color: #8e8e93; }
     .null { color: #c7c7cc; font-size: 12px; }
+
+    /* AI analysis */
+    .ai-wrap { display: none; background: white; border-radius: 18px; padding: 24px; margin-top: 12px; }
+    .ai-desc { font-size: 13px; color: #3a3a3c; line-height: 1.6; margin-bottom: 10px; }
+    .ai-period { font-size: 12px; color: #8e8e93; margin-bottom: 12px; }
+    .ai-textarea {
+      width: 100%;
+      min-height: 300px;
+      font-family: 'Menlo', 'SF Mono', 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      border: 1px solid #d1d1d6;
+      border-radius: 10px;
+      padding: 14px;
+      color: #1d1d1f;
+      background: #f9f9fb;
+      resize: vertical;
+      outline: none;
+    }
+    .ai-footer { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
+    .ai-chars { font-size: 12px; color: #8e8e93; }
+
+    /* Auth / Expired */
+    .gate-screen { display: none; max-width: 380px; margin: 60px auto; padding: 0 16px; }
+    .gate-card { background: white; border-radius: 18px; padding: 36px 28px; text-align: center; box-shadow: 0 2px 20px rgba(0,0,0,0.08); }
+    .gate-title { font-size: 20px; font-weight: 700; margin-bottom: 10px; }
+    .gate-desc { font-size: 13px; color: #8e8e93; line-height: 1.7; margin-bottom: 22px; }
+    .gate-input {
+      width: 100%; font-size: 15px; border: 1.5px solid #d1d1d6; border-radius: 10px;
+      padding: 12px 14px; outline: none; margin-bottom: 12px; color: #1d1d1f;
+      font-family: inherit;
+    }
+    .gate-input:focus { border-color: #007aff; }
+    .gate-btn { width: 100%; background: #007aff; color: white; border: none; border-radius: 10px; padding: 13px; font-size: 15px; font-weight: 600; cursor: pointer; }
+    .gate-btn:hover { background: #0065d8; }
+    .gate-error { color: #ff3b30; font-size: 13px; margin-top: 10px; min-height: 18px; }
+    .gate-copy { text-align: center; font-size: 11px; color: #8e8e93; margin-top: 16px; }
   </style>
 </head>
 <body>
@@ -160,9 +197,31 @@
   ・このURLを第三者に教えること、SNS・ブログ・他サービスへの掲載　・本ツールの複製・改変・再配布　・本ツールを利用した商用サービスの提供　・著作権表示の削除または改ざん<br>
   Copyright &copy; mirukum198 All Rights Reserved.
 </div>
-<div class="container">
+<!-- Expired screen -->
+<div class="gate-screen" id="expiredScreen">
+  <div class="gate-card">
+    <div class="gate-title">サービス期間終了</div>
+    <p class="gate-desc">現在のパスワードの有効期限が終了しました。<br>最新のパスワードはnoteの有料記事でご確認ください。</p>
+  </div>
+  <p class="gate-copy">Copyright &copy; mirukum198 All Rights Reserved.</p>
+</div>
+
+<!-- Auth screen -->
+<div class="gate-screen" id="authScreen">
+  <div class="gate-card">
+    <div class="gate-title">ヘルスケアビューア</div>
+    <p class="gate-desc">noteの有料コンテンツ購読者専用ツールです。<br>パスワードを入力してください。</p>
+    <input type="password" id="pwInput" class="gate-input" placeholder="パスワード"
+      onkeydown="if(event.key==='Enter')submitPassword()">
+    <button class="gate-btn" onclick="submitPassword()">ログイン</button>
+    <p class="gate-error" id="pwError"></p>
+  </div>
+  <p class="gate-copy">Copyright &copy; mirukum198 All Rights Reserved.</p>
+</div>
+
+<div class="container" id="mainContent" style="display:none;">
   <h1>ヘルスケアビューア</h1>
-  <p class="subtitle">Apple ヘルスケアのデータを可視化します &nbsp;|&nbsp; <span style="font-size:11px;">ver 1.4.0</span></p>
+  <p class="subtitle">Apple ヘルスケアのデータを可視化します &nbsp;|&nbsp; <span style="font-size:11px;">ver 1.5.2</span></p>
 
   <div style="background:#f2f2f7;border-radius:12px;padding:12px 16px;margin-bottom:16px;font-size:12px;color:#3a3a3c;line-height:1.7;">
     <strong>注意事項</strong><br>
@@ -263,6 +322,7 @@
     <div class="tab-row">
       <button class="tab-btn active" id="tabMonthly" onclick="switchTab('monthly')">月別</button>
       <button class="tab-btn" id="tabDaily" onclick="switchTab('daily')">日別（詳細）</button>
+      <button class="tab-btn" id="tabAi" onclick="switchTab('ai')">AI分析</button>
     </div>
   </div>
 
@@ -306,9 +366,96 @@
       </table>
     </div>
   </div>
+
+  <div class="ai-wrap" id="aiWrap">
+    <div class="table-title">AI分析プロンプト</div>
+    <p class="ai-desc">以下のプロンプトをコピーして、ChatGPT・Claude・Gemini等に貼り付けると健康データを分析してもらえます。</p>
+    <p class="ai-period" id="aiPeriod"></p>
+    <textarea class="ai-textarea" id="aiTextarea" readonly></textarea>
+    <div class="ai-footer">
+      <button class="btn" id="copyBtn" onclick="copyPrompt()">コピー</button>
+      <span class="ai-chars" id="aiChars"></span>
+    </div>
+  </div>
 </div>
 
 <script>
+// --- Log system (最初に初期化) ---
+const _logBuf = [];
+(function() {
+  const _orig = { log: console.log, warn: console.warn, error: console.error };
+  function _cap(lvl, args) {
+    const line = `[${new Date().toISOString()}][${lvl}] ${[...args].map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')}`;
+    _logBuf.push(line);
+    if (_logBuf.length > 300) _logBuf.shift();
+    try { localStorage.setItem('hv_log', _logBuf.slice(-100).join('\n')); } catch(e) {}
+  }
+  console.log   = (...a) => { _cap('LOG', a); _orig.log(...a); };
+  console.warn  = (...a) => { _cap('WRN', a); _orig.warn(...a); };
+  console.error = (...a) => { _cap('ERR', a); _orig.error(...a); };
+  window.onerror = (msg, src, line, col) => _cap('ERR', [`${msg} (${src}:${line}:${col})`]);
+  window.addEventListener('unhandledrejection', e => _cap('ERR', [`UnhandledRejection: ${e.reason}`]));
+})();
+
+function _milestone(label) {
+  const line = `[${new Date().toISOString()}] >>> ${label}`;
+  _logBuf.push(line);
+  try { localStorage.setItem('hv_milestone', line); } catch(e) {}
+}
+
+// --- Auth (SHA-256 / フェーズ管理) ---
+const _PH1_HASH = '0fcc0078ebfdda5b4d1e5504ee77d2c59be81c62aa60e28906a27156ac4e9fc5';
+const _PH2_HASH = '79d4489efe1152ed00e7a56b0e509813a02c74fa1f3575edf4d2de2e9c4bb8d8';
+const _PH1_END  = new Date('2026-07-01T00:00:00+09:00');
+const _PH2_END  = new Date('2026-09-01T00:00:00+09:00');
+
+function _currentPhase() {
+  const now = new Date();
+  if (now < _PH1_END) return 1;
+  if (now < _PH2_END) return 2;
+  return 0; // サービス終了
+}
+
+async function _sha256(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function _showMain() {
+  document.getElementById('mainContent').style.display = 'block';
+}
+
+async function checkAuth() {
+  const phase = _currentPhase();
+  if (phase === 0) {
+    document.getElementById('expiredScreen').style.display = 'block';
+    return;
+  }
+  if (sessionStorage.getItem('hv_auth') === 'ok') {
+    _showMain(); return;
+  }
+  document.getElementById('authScreen').style.display = 'block';
+  setTimeout(() => document.getElementById('pwInput').focus(), 100);
+}
+
+async function submitPassword() {
+  const pw = document.getElementById('pwInput').value;
+  if (!pw) return;
+  const hash = await _sha256(pw);
+  const expected = _currentPhase() === 1 ? _PH1_HASH : _PH2_HASH;
+  if (hash === expected) {
+    sessionStorage.setItem('hv_auth', 'ok');
+    _milestone('auth_success');
+    document.getElementById('authScreen').style.display = 'none';
+    _showMain();
+  } else {
+    _milestone('auth_failed');
+    document.getElementById('pwError').textContent = 'パスワードが違います。';
+    document.getElementById('pwInput').value = '';
+    document.getElementById('pwInput').focus();
+  }
+}
+
 const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
 
 // iOSの場合は注意書きを表示
@@ -338,27 +485,34 @@ dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.
 fileInput.addEventListener('change', e => { if (e.target.files[0]) processFile(e.target.files[0]); });
 
 async function processFile(file) {
+  _milestone(`file_selected: ${file.name} (${(file.size/1024/1024).toFixed(1)}MB)`);
   const ext = file.name.split('.').pop().toLowerCase();
   const isXml = ext === 'xml';
   hideError(); hideResults();
   try {
     if (isXml) {
+      _milestone('xml_parse_start');
       setProgress(true, 10, `XMLファイルを読み込み中（${(file.size/1024/1024).toFixed(0)} MB）...`); await tick();
       dayMap = await parseXmlFile(file);
     } else {
+      _milestone('zip_load_start');
       setProgress(true, 0, 'ZIPファイルを読み込み中...'); await tick();
       const buf = await file.arrayBuffer();
+      _milestone('zip_arraybuffer_ok');
       setProgress(true, 20, 'ZIPを解凍中...'); await tick();
       const jzip = await JSZip.loadAsync(buf);
       const entry = jzip.file('apple_health_export/export.xml');
       if (!entry) throw new Error('apple_health_export/export.xml が見つかりません。');
+      _milestone('zip_entry_found');
       setProgress(true, 40, 'XMLを展開中...'); await tick();
       const uint8 = await entry.async('uint8array');
+      _milestone(`zip_uint8_ok: ${(uint8.length/1024/1024).toFixed(1)}MB`);
       setProgress(true, 60, `データを抽出中（${(uint8.length/1024/1024).toFixed(0)} MB）...`); await tick();
       dayMap = await parseAll(uint8);
     }
     sortedDates = Object.keys(dayMap).sort();
     if (sortedDates.length === 0) throw new Error('データが見つかりませんでした。');
+    _milestone(`parse_complete: ${sortedDates.length}days`);
     hasWeight   = sortedDates.some(d => dayMap[d].weight !== null);
     hasFat      = sortedDates.some(d => dayMap[d].bodyFat !== null);
     hasActivity = sortedDates.some(d => dayMap[d].steps > 0 || dayMap[d].distance > 0);
@@ -367,16 +521,32 @@ async function processFile(file) {
     setProgress(true, 100, `完了：${sortedDates.length} 日分のデータを読み込みました`);
     await new Promise(r => setTimeout(r, 600));
     setProgress(false);
+    _milestone('render_start');
     renderAll();
   } catch (err) {
+    _milestone(`error: ${err.message}`);
     setProgress(false);
     showError(`エラー: ${err.message}\n\n${err.stack || ''}`);
   }
 }
 
 function initDay(result, date) {
-  if (!result[date]) result[date] = { weight: null, bodyFat: null, steps: 0, distance: 0, activeCalories: 0, sleep: 0, hasSleep: false };
+  if (!result[date]) result[date] = { weight: null, bodyFat: null, steps: 0, distance: 0, _stepsBySrc: {}, _distBySrc: {}, activeCalories: 0, sleep: 0, hasSleep: false };
   return result[date];
+}
+
+function resolveSourcePriority(result) {
+  for (const d of Object.values(result)) {
+    const stepSrcs = Object.keys(d._stepsBySrc);
+    const wStep = stepSrcs.find(k => k.toLowerCase().includes('watch'));
+    d.steps = wStep ? d._stepsBySrc[wStep] : stepSrcs.reduce((s, k) => s + d._stepsBySrc[k], 0);
+    const distSrcs = Object.keys(d._distBySrc);
+    const wDist = distSrcs.find(k => k.toLowerCase().includes('watch'));
+    d.distance = wDist ? d._distBySrc[wDist] : distSrcs.reduce((s, k) => s + d._distBySrc[k], 0);
+    delete d._stepsBySrc;
+    delete d._distBySrc;
+  }
+  return result;
 }
 
 async function parseAll(uint8) {
@@ -417,17 +587,21 @@ async function parseAll(uint8) {
       } else if (type === 'HKQuantityTypeIdentifierStepCount') {
         const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
         const vM = a.match(/\bvalue="([0-9.]+)"/);
+        const sN = (a.match(/\bsourceName="([^"]+)"/) || [])[1] || '_';
         if (!dM || !vM) continue;
-        initDay(result, dM[1]).steps += Math.round(parseFloat(vM[1]));
+        const d = initDay(result, dM[1]);
+        d._stepsBySrc[sN] = (d._stepsBySrc[sN] || 0) + Math.round(parseFloat(vM[1]));
 
       } else if (type === 'HKQuantityTypeIdentifierDistanceWalkingRunning') {
         const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
         const vM = a.match(/\bvalue="([0-9.]+)"/);
         const uM = a.match(/\bunit="([^"]+)"/);
+        const sN = (a.match(/\bsourceName="([^"]+)"/) || [])[1] || '_';
         if (!dM || !vM) continue;
         let v = parseFloat(vM[1]);
         if (uM && uM[1] === 'm') v /= 1000;
-        initDay(result, dM[1]).distance += v;
+        const d = initDay(result, dM[1]);
+        d._distBySrc[sN] = (d._distBySrc[sN] || 0) + v;
 
       } else if (type === 'HKQuantityTypeIdentifierActiveEnergyBurned') {
         const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
@@ -454,10 +628,12 @@ async function parseAll(uint8) {
         d.hasSleep = true;
       }
     }
-    setProgress(true, 60 + Math.round((offset / total) * 35), `データを抽出中... ${Math.round(offset / total * 100)}%`);
+    const pct = Math.round(offset / total * 100);
+    if (pct % 20 === 0) _milestone(`chunk_${pct}pct`);
+    setProgress(true, 60 + Math.round((offset / total) * 35), `データを抽出中... ${pct}%`);
     await tick();
   }
-  return result;
+  return resolveSourcePriority(result);
 }
 
 async function parseXmlFile(file) {
@@ -495,16 +671,20 @@ async function parseXmlFile(file) {
       } else if (type === 'HKQuantityTypeIdentifierStepCount') {
         const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
         const vM = a.match(/\bvalue="([0-9.]+)"/);
+        const sN = (a.match(/\bsourceName="([^"]+)"/) || [])[1] || '_';
         if (!dM || !vM) continue;
-        initDay(result, dM[1]).steps += Math.round(parseFloat(vM[1]));
+        const d = initDay(result, dM[1]);
+        d._stepsBySrc[sN] = (d._stepsBySrc[sN] || 0) + Math.round(parseFloat(vM[1]));
       } else if (type === 'HKQuantityTypeIdentifierDistanceWalkingRunning') {
         const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
         const vM = a.match(/\bvalue="([0-9.]+)"/);
         const uM = a.match(/\bunit="([^"]+)"/);
+        const sN = (a.match(/\bsourceName="([^"]+)"/) || [])[1] || '_';
         if (!dM || !vM) continue;
         let v = parseFloat(vM[1]);
         if (uM && uM[1] === 'm') v /= 1000;
-        initDay(result, dM[1]).distance += v;
+        const d = initDay(result, dM[1]);
+        d._distBySrc[sN] = (d._distBySrc[sN] || 0) + v;
       } else if (type === 'HKQuantityTypeIdentifierActiveEnergyBurned') {
         const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
         const vM = a.match(/\bvalue="([0-9.]+)"/);
@@ -532,7 +712,7 @@ async function parseXmlFile(file) {
     setProgress(true, 10 + Math.round((offset / total) * 85), `データを抽出中... ${Math.round(offset / total * 100)}%`);
     await tick();
   }
-  return result;
+  return resolveSourcePriority(result);
 }
 
 function renderAll() {
@@ -575,6 +755,7 @@ function applyFilter() {
   renderCharts(dates);
   renderMonthlyTable(dates);
   if (currentTab === 'daily') renderDetailTable(dates);
+  if (currentTab === 'ai') renderAiPrompt();
 }
 
 function resetFilter() {
@@ -834,14 +1015,17 @@ function switchTab(tab) {
   currentTab = tab;
   document.getElementById('tabMonthly').classList.toggle('active', tab === 'monthly');
   document.getElementById('tabDaily').classList.toggle('active', tab === 'daily');
+  document.getElementById('tabAi').classList.toggle('active', tab === 'ai');
   document.getElementById('tableWrap').style.display  = tab === 'monthly' ? 'block' : 'none';
   document.getElementById('detailWrap').style.display = tab === 'daily'   ? 'block' : 'none';
+  document.getElementById('aiWrap').style.display     = tab === 'ai'      ? 'block' : 'none';
   if (tab === 'daily') {
     const from = document.getElementById('dateFrom').value;
     const to   = document.getElementById('dateTo').value;
     const dates = sortedDates.filter(d => (!from || d >= from) && (!to || d <= to));
     renderDetailTable(dates);
   }
+  if (tab === 'ai') renderAiPrompt();
 }
 
 // --- Helpers ---
@@ -851,12 +1035,177 @@ function setProgress(show, pct = 0, label = '') {
   document.getElementById('progressLabel').textContent = label;
 }
 function hideResults() {
-  ['summaryRow','dateFilterWrap','weightChartWrap','fatChartWrap','activityChartWrap','calorieChartWrap','sleepChartWrap','tabsWrap','tableWrap','detailWrap']
+  ['summaryRow','dateFilterWrap','weightChartWrap','fatChartWrap','activityChartWrap','calorieChartWrap','sleepChartWrap','tabsWrap','tableWrap','detailWrap','aiWrap']
     .forEach(id => document.getElementById(id).style.display = 'none');
 }
-function showError(msg) { const el = document.getElementById('errorBox'); el.textContent = msg; el.style.display = 'block'; }
+function _esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function showError(msg) {
+  const el = document.getElementById('errorBox');
+  const milestone = localStorage.getItem('hv_milestone') || '(なし)';
+  el.innerHTML =
+    `<div style="white-space:pre-wrap">${_esc(msg)}</div>` +
+    `<div style="margin-top:8px;font-size:12px;color:#8e8e93;">最終処理: ${_esc(milestone)}</div>` +
+    `<button onclick="copyErrorLog()" style="margin-top:10px;background:#f2f2f7;border:1px solid #e5e5ea;border-radius:8px;padding:7px 14px;font-size:12px;cursor:pointer;color:#1d1d1f;" id="copyLogBtn">エラーログをコピー</button>`;
+  el.style.display = 'block';
+}
+
+async function copyErrorLog() {
+  const log = `=== エラーログ ===\n${localStorage.getItem('hv_log') || '(ログなし)'}`;
+  try {
+    await navigator.clipboard.writeText(log);
+    document.getElementById('copyLogBtn').textContent = 'コピーしました';
+  } catch(e) {
+    prompt('以下をコピーしてサポートへお送りください:', log);
+  }
+}
+
 function hideError() { document.getElementById('errorBox').style.display = 'none'; }
 function tick() { return new Promise(r => setTimeout(r, 30)); }
+
+// 起動時認証チェック
+checkAuth();
+
+// --- AI Analysis ---
+function renderAiPrompt() {
+  if (sortedDates.length === 0) return;
+
+  // フィルター無視・常に直近1年を対象
+  const latestDate = sortedDates[sortedDates.length - 1];
+  const oneYearAgo = new Date(latestDate);
+  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+  const oneYearAgoStr = oneYearAgo.toISOString().slice(0, 10);
+  const yearDates = sortedDates.filter(d => d > oneYearAgoStr);
+
+  if (yearDates.length === 0) {
+    document.getElementById('aiTextarea').value = 'データがありません。';
+    return;
+  }
+
+  const avg = arr => arr.length > 0 ? arr.reduce((a,b)=>a+b,0)/arr.length : null;
+  const fmtM = m => { const [y, mo] = m.split('-'); return `${y}年${parseInt(mo)}月`; };
+
+  // Monthly aggregation
+  const monthly = {};
+  for (const date of yearDates) {
+    const m = date.slice(0, 7);
+    if (!monthly[m]) monthly[m] = { weights: [], fats: [], steps: 0, calories: 0, sleeps: [] };
+    const r = dayMap[date];
+    if (r.weight  !== null) monthly[m].weights.push(r.weight);
+    if (r.bodyFat !== null) monthly[m].fats.push(r.bodyFat);
+    monthly[m].steps    += r.steps;
+    monthly[m].calories += r.activeCalories;
+    if (r.hasSleep) monthly[m].sleeps.push(r.sleep);
+  }
+
+  let months = Object.keys(monthly).sort();
+  if (months.length > 12) months = months.slice(months.length - 12);
+
+  const periodLabel = months.length > 1
+    ? `${fmtM(months[0])} 〜 ${fmtM(months[months.length-1])}（${months.length}ヶ月）`
+    : fmtM(months[0]);
+
+  // Monthly table rows
+  const monthlyRows = months.map(m => {
+    const mv = monthly[m];
+    const w = avg(mv.weights);
+    const f = avg(mv.fats);
+    const s = avg(mv.sleeps);
+    return `| ${m.replace('-','/')} | ${w !== null ? w.toFixed(1) : '—'} | ${f !== null ? f.toFixed(1) : '—'} | ${mv.steps > 0 ? mv.steps.toLocaleString() : '—'} | ${mv.calories > 0 ? Math.round(mv.calories).toLocaleString() : '—'} | ${s !== null ? s.toFixed(1) : '—'} |`;
+  }).join('\n');
+
+  // 当月・前月の日別データ
+  const latestMonth = latestDate.slice(0, 7);
+  const prevMonthDate = new Date(latestMonth + '-01');
+  prevMonthDate.setMonth(prevMonthDate.getMonth() - 1);
+  const prevMonth = prevMonthDate.toISOString().slice(0, 7);
+
+  const dailyHeader = `| 日付 | 体重(kg) | 体脂肪(%) | 歩数(歩) | 消費(kcal) | 睡眠(h) |\n|---|---|---|---|---|---|`;
+  const buildDailyRows = dates => dates.map(d => {
+    const r = dayMap[d];
+    const w  = r.weight         !== null ? r.weight.toFixed(1)         : '—';
+    const f  = r.bodyFat        !== null ? r.bodyFat.toFixed(1)        : '—';
+    const st = r.steps          >  0    ? r.steps.toLocaleString()     : '—';
+    const c  = r.activeCalories >  0    ? Math.round(r.activeCalories) : '—';
+    const sl = r.hasSleep               ? r.sleep.toFixed(1)           : '—';
+    return `| ${d} | ${w} | ${f} | ${st} | ${c} | ${sl} |`;
+  }).join('\n');
+
+  const prevDates    = yearDates.filter(d => d.startsWith(prevMonth));
+  const currentDates = yearDates.filter(d => d.startsWith(latestMonth));
+
+  const dailySections = [
+    prevDates.length    > 0 ? `【前月日別：${fmtM(prevMonth)}】\n${dailyHeader}\n${buildDailyRows(prevDates)}`       : '',
+    currentDates.length > 0 ? `【当月日別：${fmtM(latestMonth)}】\n${dailyHeader}\n${buildDailyRows(currentDates)}` : ''
+  ].filter(Boolean).join('\n\n');
+
+  // 7-day average
+  const last7 = yearDates.slice(-7);
+  const r7 = { weights: [], fats: [], steps: 0, calories: 0, sleeps: [] };
+  for (const d of last7) {
+    const r = dayMap[d];
+    if (r.weight  !== null) r7.weights.push(r.weight);
+    if (r.bodyFat !== null) r7.fats.push(r.bodyFat);
+    r7.steps    += r.steps;
+    r7.calories += r.activeCalories;
+    if (r.hasSleep) r7.sleeps.push(r.sleep);
+  }
+  const n = last7.length || 1;
+  const r7wv  = avg(r7.weights);
+  const r7fv  = avg(r7.fats);
+  const r7slv = avg(r7.sleeps);
+  const r7w  = r7wv  !== null ? r7wv.toFixed(1)+' kg' : '—';
+  const r7f  = r7fv  !== null ? r7fv.toFixed(1)+'%' : '—';
+  const r7st = Math.round(r7.steps / n).toLocaleString()+'歩';
+  const r7c  = Math.round(r7.calories / n).toLocaleString()+' kcal';
+  const r7sl = r7slv !== null ? r7slv.toFixed(1)+' h' : '—';
+
+  const prompt =
+`あなたは健康管理の専門家です。
+以下はApple ヘルスケアアプリから取得した私の健康データです。
+
+【記録期間】${periodLabel}
+
+【月別サマリー】
+| 月 | 体重(kg) | 体脂肪(%) | 歩数(歩) | 消費(kcal) | 睡眠(h) |
+|---|---|---|---|---|---|
+${monthlyRows}
+
+${dailySections}
+
+【直近7日の平均】
+体重: ${r7w} / 体脂肪率: ${r7f} / 歩数: ${r7st}
+消費カロリー: ${r7c} / 睡眠: ${r7sl}
+
+【分析の依頼】
+以下の4点を分析してください。
+
+1.【体重・体組成】体重と体脂肪率の変化傾向を評価し、ダイエット・維持の進捗と停滞期の有無を指摘してください。
+
+2.【活動量】歩数・消費カロリーから活動レベルを評価し、改善するための具体的な目標と方法を提案してください。
+
+3.【睡眠】睡眠時間のパターンを評価し、理想の睡眠時間との比較と改善アドバイスを教えてください。
+
+4.【総合】上記を踏まえ、今後1ヶ月で優先して取り組むべき行動を3つ、具体的に提案してください。`;
+
+  document.getElementById('aiTextarea').value = prompt;
+  document.getElementById('aiChars').textContent = `${prompt.length.toLocaleString()} 文字`;
+  document.getElementById('aiPeriod').textContent = `対象期間: 直近1年（${periodLabel}）`;
+  document.getElementById('copyBtn').textContent = 'コピー';
+}
+
+async function copyPrompt() {
+  const text = document.getElementById('aiTextarea').value;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    document.getElementById('aiTextarea').select();
+    document.execCommand('copy');
+  }
+  const btn = document.getElementById('copyBtn');
+  btn.textContent = 'コピーしました';
+  setTimeout(() => { btn.textContent = 'コピー'; }, 2000);
+}
 </script>
 </body>
 </html>
