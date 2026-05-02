@@ -400,7 +400,10 @@ const _logBuf = [];
 function _milestone(label) {
   const line = `[${new Date().toISOString()}] >>> ${label}`;
   _logBuf.push(line);
-  try { localStorage.setItem('hv_milestone', line); } catch(e) {}
+  try {
+    localStorage.setItem('hv_milestone', line);
+    localStorage.setItem('hv_log', _logBuf.slice(-100).join('\n'));
+  } catch(e) {}
 }
 
 // --- Auth (SHA-256 / フェーズ管理) ---
@@ -1051,7 +1054,8 @@ function showError(msg) {
 }
 
 async function copyErrorLog() {
-  const log = `=== エラーログ ===\n${localStorage.getItem('hv_log') || '(ログなし)'}`;
+  const inMemory = _logBuf.join('\n');
+  const log = `=== エラーログ ===\n${inMemory || localStorage.getItem('hv_log') || '(ログなし)'}`;
   try {
     await navigator.clipboard.writeText(log);
     document.getElementById('copyLogBtn').textContent = 'コピーしました';
