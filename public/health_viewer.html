@@ -531,8 +531,22 @@ async function processFile(file) {
 }
 
 function initDay(result, date) {
-  if (!result[date]) result[date] = { weight: null, bodyFat: null, steps: 0, distance: 0, activeCalories: 0, sleep: 0, hasSleep: false };
+  if (!result[date]) result[date] = { weight: null, bodyFat: null, steps: 0, distance: 0, _stepsBySrc: {}, _distBySrc: {}, activeCalories: 0, sleep: 0, hasSleep: false };
   return result[date];
+}
+
+function resolveSourcePriority(result) {
+  for (const d of Object.values(result)) {
+    const stepSrcs = Object.keys(d._stepsBySrc);
+    const wStep = stepSrcs.find(k => k.toLowerCase().includes('watch'));
+    d.steps = wStep ? d._stepsBySrc[wStep] : stepSrcs.reduce((s, k) => s + d._stepsBySrc[k], 0);
+    const distSrcs = Object.keys(d._distBySrc);
+    const wDist = distSrcs.find(k => k.toLowerCase().includes('watch'));
+    d.distance = wDist ? d._distBySrc[wDist] : distSrcs.reduce((s, k) => s + d._distBySrc[k], 0);
+    delete d._stepsBySrc;
+    delete d._distBySrc;
+  }
+  return result;
 }
 
 async function parseAll(uint8) {
@@ -573,17 +587,21 @@ async function parseAll(uint8) {
       } else if (type === 'HKQuantityTypeIdentifierStepCount') {
         const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
         const vM = a.match(/\bvalue="([0-9.]+)"/);
+        const sN = (a.match(/\bsourceName="([^"]+)"/) || [])[1] || '_';
         if (!dM || !vM) continue;
-        initDay(result, dM[1]).steps += Math.round(parseFloat(vM[1]));
+        const d = initDay(result, dM[1]);
+        d._stepsBySrc[sN] = (d._stepsBySrc[sN] || 0) + Math.round(parseFloat(vM[1]));
 
       } else if (type === 'HKQuantityTypeIdentifierDistanceWalkingRunning') {
         const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
         const vM = a.match(/\bvalue="([0-9.]+)"/);
         const uM = a.match(/\bunit="([^"]+)"/);
+        const sN = (a.match(/\bsourceName="([^"]+)"/) || [])[1] || '_';
         if (!dM || !vM) continue;
         let v = parseFloat(vM[1]);
         if (uM && uM[1] === 'm') v /= 1000;
-        initDay(result, dM[1]).distance += v;
+        const d = initDay(result, dM[1]);
+        d._distBySrc[sN] = (d._distBySrc[sN] || 0) + v;
 
       } else if (type === 'HKQuantityTypeIdentifierActiveEnergyBurned') {
         const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
@@ -615,7 +633,7 @@ async function parseAll(uint8) {
     setProgress(true, 60 + Math.round((offset / total) * 35), `データを抽出中... ${pct}%`);
     await tick();
   }
-  return result;
+  return resolveSourcePriority(result);
 }
 
 async function parseXmlFile(file) {
@@ -653,16 +671,20 @@ async function parseXmlFile(file) {
       } else if (type === 'HKQuantityTypeIdentifierStepCount') {
         const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
         const vM = a.match(/\bvalue="([0-9.]+)"/);
+        const sN = (a.match(/\bsourceName="([^"]+)"/) || [])[1] || '_';
         if (!dM || !vM) continue;
-        initDay(result, dM[1]).steps += Math.round(parseFloat(vM[1]));
+        const d = initDay(result, dM[1]);
+        d._stepsBySrc[sN] = (d._stepsBySrc[sN] || 0) + Math.round(parseFloat(vM[1]));
       } else if (type === 'HKQuantityTypeIdentifierDistanceWalkingRunning') {
         const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
         const vM = a.match(/\bvalue="([0-9.]+)"/);
         const uM = a.match(/\bunit="([^"]+)"/);
+        const sN = (a.match(/\bsourceName="([^"]+)"/) || [])[1] || '_';
         if (!dM || !vM) continue;
         let v = parseFloat(vM[1]);
         if (uM && uM[1] === 'm') v /= 1000;
-        initDay(result, dM[1]).distance += v;
+        const d = initDay(result, dM[1]);
+        d._distBySrc[sN] = (d._distBySrc[sN] || 0) + v;
       } else if (type === 'HKQuantityTypeIdentifierActiveEnergyBurned') {
         const dM = a.match(/\bstartDate="(\d{4}-\d{2}-\d{2})/);
         const vM = a.match(/\bvalue="([0-9.]+)"/);
@@ -690,7 +712,7 @@ async function parseXmlFile(file) {
     setProgress(true, 10 + Math.round((offset / total) * 85), `データを抽出中... ${Math.round(offset / total * 100)}%`);
     await tick();
   }
-  return result;
+  return resolveSourcePriority(result);
 }
 
 function renderAll() {
