@@ -407,16 +407,22 @@ function _milestone(label) {
 }
 
 // --- Auth (SHA-256 / フェーズ管理) ---
-const _PH1_HASH = '0fcc0078ebfdda5b4d1e5504ee77d2c59be81c62aa60e28906a27156ac4e9fc5';
-const _PH2_HASH = '79d4489efe1152ed00e7a56b0e509813a02c74fa1f3575edf4d2de2e9c4bb8d8';
-const _PH1_END  = new Date('2026-07-01T00:00:00+09:00');
-const _PH2_END  = new Date('2026-09-01T00:00:00+09:00');
+const _PH1_HASH   = '0fcc0078ebfdda5b4d1e5504ee77d2c59be81c62aa60e28906a27156ac4e9fc5';
+const _PH2_HASH   = '79d4489efe1152ed00e7a56b0e509813a02c74fa1f3575edf4d2de2e9c4bb8d8';
+const _TRIAL_HASH = '4ec84d97ccbd6a04246b0e8e00c5d48a52b84cf212356bcdd57b1762ef116191';
+const _PH1_END    = new Date('2026-07-01T00:00:00+09:00');
+const _PH2_END    = new Date('2026-09-01T00:00:00+09:00');
+const _TRIAL_END  = new Date('2026-05-17T00:00:00+09:00'); // trial20260516h の有効期限
 
 function _currentPhase() {
   const now = new Date();
   if (now < _PH1_END) return 1;
   if (now < _PH2_END) return 2;
   return 0; // サービス終了
+}
+
+function _trialActive() {
+  return new Date() < _TRIAL_END;
 }
 
 async function _sha256(str) {
@@ -446,7 +452,8 @@ async function submitPassword() {
   if (!pw) return;
   const hash = await _sha256(pw);
   const expected = _currentPhase() === 1 ? _PH1_HASH : _PH2_HASH;
-  if (hash === expected) {
+  const isTrial = _trialActive() && hash === _TRIAL_HASH;
+  if (hash === expected || isTrial) {
     sessionStorage.setItem('hv_auth', 'ok');
     _milestone('auth_success');
     document.getElementById('authScreen').style.display = 'none';
